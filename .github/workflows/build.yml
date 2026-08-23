@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -34,25 +34,39 @@ jobs:
           gradle-version: '9.3.1'
 
       - name: Build KMJS
+        id: build
+        continue-on-error: true
         run: |
-          gradle assembleDebug --stacktrace > build.log 2>&1 || true
+          gradle :app:assembleDebug --stacktrace --no-daemon > build.log 2>&1
+          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
 
-          echo "===== GRADLE TASKS ====="
-          grep -E "^> Task " build.log || true
+      - name: Extract actual error
+        run: |
+          echo "========================================"
+          echo "KMJS BUILD DIAGNOSTIC"
+          echo "========================================"
 
           echo ""
-          echo "===== ERRORS ====="
-          grep -E "e: |error: |ERROR:|FAILURE:|What went wrong|Execution failed|Caused by:" build.log | tail -100 || true
+          echo "===== FAILED TASKS ====="
+          grep -E "^> Task .*FAILED|Execution failed for task" build.log || true
 
           echo ""
-          echo "===== LAST 200 LINES ====="
-          tail -200 build.log
+          echo "===== COMPILER ERRORS ====="
+          grep -E "e: |error: |ERROR:" build.log | tail -100 || true
 
-          if grep -q "BUILD FAILED" build.log; then
-            exit 1
-          fi
+          echo ""
+          echo "===== GRADLE ERROR ====="
+          grep -A 30 -B 5 "\* What went wrong:" build.log | tail -100 || true
 
-      - name: Upload build log
+          echo ""
+          echo "===== CAUSED BY ====="
+          grep -A 20 "Caused by:" build.log | tail -100 || true
+
+          echo ""
+          echo "===== LAST 100 LINES ====="
+          tail -100 build.log
+
+      - name: Upload complete build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -60,9 +74,17 @@ jobs:
           path: build.log
           retention-days: 7
 
+      - name: Fail if build failed
+        if: steps.build.outputs.exit_code != '0'
+        run: |
+          echo "KMJS build failed."
+          exit 1
+
       - name: Find APK
         if: success()
-        run: find . -type f -name "*.apk" -print
+        run: |
+          echo "===== APK ====="
+          find . -type f -name "*.apk" -print
 
       - name: Upload APK
         if: success()
