@@ -25,26 +25,23 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Gradle
+      - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.10'
 
-      - name: Show project files
+      - name: Show project structure
         run: |
-          echo "=== Repository ==="
+          echo "Repository:"
           ls -la
-
-          echo "=== Project files ==="
+          echo "Project files:"
           find . -maxdepth 3 -type f | sort
 
       - name: Build KMJS
         run: gradle assembleDebug --stacktrace
 
       - name: Find APK
-        run: |
-          echo "=== APK OUTPUTS ==="
-          find . -type f -name "*.apk" -print
+        run: find . -type f -name "*.apk" -print
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
@@ -52,12 +49,4 @@ jobs:
           name: KMJS-APK
           path: "**/*.apk"
           if-no-files-found: error
-          retention-days: 30      - name: Find APK
-        run: find . -name "*.apk" -print
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: KMJS-APK
-          path: "**/*.apk"
-          if-no-files-found: error
+          retention-days: 30
