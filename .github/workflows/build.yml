@@ -1,4 +1,4 @@
-name: Build KMJS
+name: Build KMJS APK
 
 on:
   workflow_dispatch:
@@ -12,11 +12,11 @@ permissions:
 
 jobs:
   build:
-    name: Build KMJS
+    name: Build KMJS APK
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout KMJS
         uses: actions/checkout@v4
 
       - name: Setup Java 17
@@ -28,73 +28,31 @@ jobs:
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Setup Gradle
+      - name: Setup Gradle 9.3.1
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
 
-      - name: Build KMJS
-        id: build
-        continue-on-error: true
-        shell: bash
+      - name: Generate Gradle Wrapper
         run: |
-          set +e
+          gradle wrapper --gradle-version 9.3.1 --distribution-type bin
+          chmod +x gradlew
+          ./gradlew --version
 
-          gradle :app:assembleDebug --stacktrace --no-daemon > build.log 2>&1
-
-          EXIT_CODE=$?
-
-          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
-
-          echo "===== BUILD RESULT ====="
-          echo "Exit code: $EXIT_CODE"
-
-          echo ""
-          echo "===== FAILED TASKS ====="
-          grep -E "^> Task .*FAILED|Execution failed for task" build.log | tail -30 || true
-
-          echo ""
-          echo "===== COMPILER ERRORS ====="
-          grep -E "e: |error: |ERROR:" build.log | tail -100 || true
-
-          echo ""
-          echo "===== WHAT WENT WRONG ====="
-          grep -A 30 -B 5 "\* What went wrong:" build.log | tail -100 || true
-
-          echo ""
-          echo "===== CAUSED BY ====="
-          grep -A 20 "Caused by:" build.log | tail -100 || true
-
-          echo ""
-          echo "===== LAST 150 LINES ====="
-          tail -150 build.log
-
-      - name: Upload build log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: KMJS-Build-Log
-          path: build.log
-          if-no-files-found: error
-          retention-days: 7
-
-      - name: Stop if build failed
-        if: steps.build.outputs.exit_code != '0'
+      - name: Build Debug APK
         run: |
-          echo "KMJS BUILD FAILED"
-          exit 1
+          ./gradlew :app:assembleDebug --stacktrace --no-daemon
 
       - name: Find APK
-        if: steps.build.outputs.exit_code == '0'
         run: |
-          echo "===== APK FILES ====="
+          echo "=== GENERATED APK ==="
           find . -type f -name "*.apk" -print
 
       - name: Upload APK
-        if: steps.build.outputs.exit_code == '0'
         uses: actions/upload-artifact@v4
         with:
           name: KMJS-APK
-          path: "**/*.apk"
+          path: |
+            app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 30
