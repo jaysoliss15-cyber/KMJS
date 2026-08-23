@@ -28,22 +28,24 @@ jobs:
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.10'
+          gradle-version: '9.3.1'
 
       - name: Show project structure
         run: |
-          echo "Repository:"
+          echo "=== Repository ==="
           ls -la
-          echo "Project files:"
+          echo "=== Project files ==="
           find . -maxdepth 3 -type f | sort
 
       - name: Build KMJS
         run: gradle assembleDebug --stacktrace
 
       - name: Find APK
-        run: find . -type f -name "*.apk" -print
+        run: |
+          echo "=== APK OUTPUTS ==="
+          find . -type f -name "*.apk" -print
 
-      - name: Upload APK
+      - name: Upload KMJS APK
         uses: actions/upload-artifact@v4
         with:
           name: KMJS-APK
