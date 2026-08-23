@@ -25,27 +25,54 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '9.3.1'
 
-      - name: Show project structure
+      - name: Show environment
         run: |
+          echo "=== Java ==="
+          java -version
+          echo "=== Gradle ==="
+          gradle --version
           echo "=== Repository ==="
           ls -la
-          echo "=== Project files ==="
-          find . -maxdepth 3 -type f | sort
+          echo "=== Gradle files ==="
+          find . -maxdepth 3 -type f \( -name "*.gradle" -o -name "*.gradle.kts" -o -name "settings.gradle*" \) -print
 
       - name: Build KMJS
-        run: gradle assembleDebug --stacktrace
+        run: |
+          set -o pipefail
+          gradle assembleDebug --stacktrace --info 2>&1 | tee build.log
+
+      - name: Show build error
+        if: failure()
+        run: |
+          echo "=============================="
+          echo "KMJS BUILD FAILED"
+          echo "=============================="
+          echo ""
+          echo "=== What went wrong ==="
+          grep -A 20 -B 5 "What went wrong" build.log || true
+          echo ""
+          echo "=== Caused by ==="
+          grep -A 15 -B 3 "Caused by:" build.log | head -100 || true
+          echo ""
+          echo "=== Last 100 lines ==="
+          tail -100 build.log
 
       - name: Find APK
+        if: success()
         run: |
           echo "=== APK OUTPUTS ==="
           find . -type f -name "*.apk" -print
 
       - name: Upload KMJS APK
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: KMJS-APK
