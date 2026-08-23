@@ -36,26 +36,29 @@ jobs:
       - name: Build KMJS
         id: build
         continue-on-error: true
+        shell: bash
         run: |
-          gradle :app:assembleDebug --stacktrace --no-daemon > build.log 2>&1
-          echo "exit_code=$?" >> "$GITHUB_OUTPUT"
+          set +e
 
-      - name: Extract actual error
-        run: |
-          echo "========================================"
-          echo "KMJS BUILD DIAGNOSTIC"
-          echo "========================================"
+          gradle :app:assembleDebug --stacktrace --no-daemon > build.log 2>&1
+
+          EXIT_CODE=$?
+
+          echo "exit_code=$EXIT_CODE" >> "$GITHUB_OUTPUT"
+
+          echo "===== BUILD RESULT ====="
+          echo "Exit code: $EXIT_CODE"
 
           echo ""
           echo "===== FAILED TASKS ====="
-          grep -E "^> Task .*FAILED|Execution failed for task" build.log || true
+          grep -E "^> Task .*FAILED|Execution failed for task" build.log | tail -30 || true
 
           echo ""
           echo "===== COMPILER ERRORS ====="
           grep -E "e: |error: |ERROR:" build.log | tail -100 || true
 
           echo ""
-          echo "===== GRADLE ERROR ====="
+          echo "===== WHAT WENT WRONG ====="
           grep -A 30 -B 5 "\* What went wrong:" build.log | tail -100 || true
 
           echo ""
@@ -63,31 +66,32 @@ jobs:
           grep -A 20 "Caused by:" build.log | tail -100 || true
 
           echo ""
-          echo "===== LAST 100 LINES ====="
-          tail -100 build.log
+          echo "===== LAST 150 LINES ====="
+          tail -150 build.log
 
-      - name: Upload complete build log
+      - name: Upload build log
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: KMJS-Build-Log
           path: build.log
+          if-no-files-found: error
           retention-days: 7
 
-      - name: Fail if build failed
+      - name: Stop if build failed
         if: steps.build.outputs.exit_code != '0'
         run: |
-          echo "KMJS build failed."
+          echo "KMJS BUILD FAILED"
           exit 1
 
       - name: Find APK
-        if: success()
+        if: steps.build.outputs.exit_code == '0'
         run: |
-          echo "===== APK ====="
+          echo "===== APK FILES ====="
           find . -type f -name "*.apk" -print
 
       - name: Upload APK
-        if: success()
+        if: steps.build.outputs.exit_code == '0'
         uses: actions/upload-artifact@v4
         with:
           name: KMJS-APK
