@@ -16,11 +16,11 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 17
-        uses: actions/setup-java@v4
+      - name: Setup Java
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
@@ -33,46 +33,36 @@ jobs:
         with:
           gradle-version: '9.3.1'
 
-      - name: Show environment
-        run: |
-          echo "=== Java ==="
-          java -version
-          echo "=== Gradle ==="
-          gradle --version
-          echo "=== Repository ==="
-          ls -la
-          echo "=== Gradle files ==="
-          find . -maxdepth 3 -type f \( -name "*.gradle" -o -name "*.gradle.kts" -o -name "settings.gradle*" \) -print
-
       - name: Build KMJS
+        id: build
+        continue-on-error: true
         run: |
-          set -o pipefail
-          gradle assembleDebug --stacktrace --info 2>&1 | tee build.log
+          gradle assembleDebug --stacktrace 2>&1 | tee build.log
+          echo "BUILD_EXIT=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
 
-      - name: Show build error
-        if: failure()
+      - name: Show actual Gradle error
+        if: steps.build.outputs.BUILD_EXIT != '0'
         run: |
-          echo "=============================="
+          echo "======================================"
           echo "KMJS BUILD FAILED"
-          echo "=============================="
+          echo "======================================"
+
           echo ""
-          echo "=== What went wrong ==="
-          grep -A 20 -B 5 "What went wrong" build.log || true
+          echo "TASK/ERROR:"
+          grep -E "^> Task |^FAILURE:|^\\* What went wrong:|^Caused by:|^Execution failed" build.log | tail -80 || true
+
           echo ""
-          echo "=== Caused by ==="
-          grep -A 15 -B 3 "Caused by:" build.log | head -100 || true
-          echo ""
-          echo "=== Last 100 lines ==="
-          tail -100 build.log
+          echo "LAST 150 LINES:"
+          tail -150 build.log
+
+          exit 1
 
       - name: Find APK
-        if: success()
         run: |
-          echo "=== APK OUTPUTS ==="
+          echo "APK FILES:"
           find . -type f -name "*.apk" -print
 
-      - name: Upload KMJS APK
-        if: success()
+      - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: KMJS-APK
