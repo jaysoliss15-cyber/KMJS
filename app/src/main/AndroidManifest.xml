@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.MyApplication">
+
+        <!-- NPatch / LSPatch / Xposed Module Metadata -->
+        <meta-data
+            android:name="xposedmodule"
+            android:value="true" />
+        <meta-data
+            android:name="xposeddescription"
+            android:value="KMJS Virtual Camera RTSP injection module for NPatch/LSPatch" />
+        <meta-data
+            android:name="xposedminversion"
+            android:value="93" />
+
+        <!-- Main KMJS RTSP Stream & Injection Control Activity -->
+        <activity
+            android:name="com.kmjs.virtualcamera.MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.MyApplication">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <!-- Target Test Camera Activity -->
+        <activity
+            android:name="com.kmjs.virtualcamera.test.CameraTestActivity"
+            android:exported="true"
+            android:label="KMJS Camera Target Test"
+            android:theme="@style/Theme.MyApplication" />
+
+        <!-- Background Persistent RTSP Foreground Service -->
+        <service
+            android:name="com.kmjs.virtualcamera.service.KmjsRtspService"
+            android:exported="true"
+            android:foregroundServiceType="mediaPlayback" />
+
+        <!-- IPC Content Provider for Injected Module Cross-Process Access -->
+        <provider
+            android:name="com.kmjs.virtualcamera.ipc.KmjsFrameContentProvider"
+            android:authorities="com.kmjs.virtualcamera.provider"
+            android:exported="true"
+            android:grantUriPermissions="true" />
+
+    </application>
+
+</manifest>

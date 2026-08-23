@@ -1,0 +1,6 @@
+{
+  "name": "KMJS",
+  "description": "Virtual Camera RTSP pipeline with persistent foreground service, FrameProvider, and NPatch/LSPatch injection module for camera substitution.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
