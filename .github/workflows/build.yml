@@ -40,6 +40,15 @@ jobs:
           set -euo pipefail
           chmod +x gradlew
 
+          # Verify gradle-wrapper.jar validity; if corrupt/truncated, regenerate or download from official Gradle release
+          if ! jar tf gradle/wrapper/gradle-wrapper.jar >/dev/null 2>&1; then
+            echo "WARNING: gradle-wrapper.jar is invalid or corrupted. Restoring valid Gradle 9.3.1 wrapper jar..."
+            mkdir -p gradle/wrapper
+            curl -fsSL -o gradle/wrapper/gradle-wrapper.jar https://raw.githubusercontent.com/gradle/gradle/v9.3.1/gradle/wrapper/gradle-wrapper.jar || \
+            curl -fsSL -o gradle/wrapper/gradle-wrapper.jar https://github.com/gradle/gradle/raw/v9.3.1/gradle/wrapper/gradle-wrapper.jar || \
+            echo "Failed to download wrapper jar from standard sources"
+          fi
+
           if [[ -f "debug.keystore.base64" && ! -f "debug.keystore" ]]; then
             echo "Decoding debug.keystore from base64..."
             base64 -d debug.keystore.base64 > debug.keystore
