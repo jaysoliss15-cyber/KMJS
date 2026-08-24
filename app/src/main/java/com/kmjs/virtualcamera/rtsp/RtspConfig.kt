@@ -9,7 +9,7 @@ enum class RtspConnectionState {
 }
 
 data class RtspConfig(
-    val url: String = "rtsp://192.168.1.38:8554/live/obs",
+    val url: String = "rtsp://9627b0bf2a7b.entrypoint.cloud.wowza.com:1935/app-p5260J38/66abe4b9_stream1",
     val autoReconnect: Boolean = true,
     val maxReconnectAttempts: Int = 10,
     val initialReconnectDelayMs: Long = 2000L,

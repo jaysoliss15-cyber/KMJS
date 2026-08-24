@@ -11,11 +11,15 @@ import java.util.concurrent.ConcurrentLinkedDeque
 
 object KmjsLog {
     const val TAG_GENERAL = "KMJS"
-    const val TAG_RTSP = "KMJS-RTSP"
-    const val TAG_SERVICE = "KMJS-SERVICE"
-    const val TAG_FRAME = "KMJS-FRAME"
+    const val TAG_MODULE = "KMJS-MODULE"
+    const val TAG_PROCESS = "KMJS-PROCESS"
+    const val TAG_TARGET = "KMJS-TARGET"
     const val TAG_INJECT = "KMJS-INJECT"
     const val TAG_CAMERA = "KMJS-CAMERA"
+    const val TAG_RTSP = "KMJS-RTSP"
+    const val TAG_FRAME = "KMJS-FRAME"
+    const val TAG_SERVICE = "KMJS-SERVICE"
+    const val TAG_ERROR = "KMJS-ERROR"
 
     data class LogEntry(
         val timestamp: Long = System.currentTimeMillis(),
@@ -28,7 +32,7 @@ object KmjsLog {
             get() = SimpleDateFormat("HH:mm:ss.SSS", Locale.US).format(Date(timestamp))
     }
 
-    private const val MAX_LOGS = 300
+    private const val MAX_LOGS = 500
     private val logBuffer = ConcurrentLinkedDeque<LogEntry>()
     private val _logsFlow = MutableStateFlow<List<LogEntry>>(emptyList())
     val logsFlow: StateFlow<List<LogEntry>> = _logsFlow.asStateFlow()
@@ -74,8 +78,14 @@ object KmjsLog {
         addEntry(tag, "E", message, throwable)
     }
 
+    fun event(tag: String, eventName: String, details: String = "") {
+        val msg = if (details.isNotEmpty()) "$eventName: $details" else eventName
+        i(tag, msg)
+    }
+
     fun clear() {
         logBuffer.clear()
         _logsFlow.value = emptyList()
     }
 }
+

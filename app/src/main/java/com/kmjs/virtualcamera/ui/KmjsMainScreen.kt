@@ -5,12 +5,8 @@ import android.graphics.Bitmap
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -32,23 +28,18 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Code
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Extension
-import androidx.compose.material.icons.filled.FiberManualRecord
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.Videocam
-import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -65,6 +56,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRowDefaults
 import androidx.compose.material3.TabRowDefaults.tabIndicatorOffset
@@ -95,6 +87,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.kmjs.virtualcamera.frame.KmjsFrameManager
 import com.kmjs.virtualcamera.frame.VideoFrame
+import com.kmjs.virtualcamera.inject.TargetAppConfig
 import com.kmjs.virtualcamera.rtsp.RtspConnectionState
 import com.kmjs.virtualcamera.test.CameraTestActivity
 import com.kmjs.virtualcamera.util.KmjsLog
@@ -109,7 +102,7 @@ fun KmjsMainScreen(
     val logs by viewModel.logEntries.collectAsState()
     val context = LocalContext.current
 
-    val tabs = listOf("Stream & Control", "Camera Test", "NPatch / LSPatch", "Logs (${logs.size})")
+    val tabs = listOf("Stream & Control", "Camera Test", "Target Architecture", "Logs (${logs.size})")
 
     Scaffold(
         topBar = {
@@ -154,7 +147,7 @@ fun KmjsMainScreen(
                                 }
                             }
                             Text(
-                                text = "Camera2 RTSP Interception Pipeline",
+                                text = "Generic Multi-App RTSP Injection",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -162,7 +155,6 @@ fun KmjsMainScreen(
                     }
                 },
                 actions = {
-                    // Quick Status Pill in Header
                     ConnectionStatusBadge(state = uiState.connectionState)
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -176,7 +168,6 @@ fun KmjsMainScreen(
                 .fillMaxSize()
                 .padding(innerPadding)
         ) {
-            // Tab Navigation
             ScrollableTabRow(
                 selectedTabIndex = uiState.selectedTab,
                 edgePadding = 16.dp,
@@ -206,7 +197,6 @@ fun KmjsMainScreen(
                 }
             }
 
-            // Tab Content
             when (uiState.selectedTab) {
                 0 -> StreamControlTab(
                     uiState = uiState,
@@ -220,7 +210,10 @@ fun KmjsMainScreen(
                         context.startActivity(Intent(context, CameraTestActivity::class.java))
                     }
                 )
-                2 -> ModuleStatusTab(uiState = uiState)
+                2 -> TargetArchitectureTab(
+                    uiState = uiState,
+                    viewModel = viewModel
+                )
                 3 -> LogsTab(logs = logs, onClear = { viewModel.clearLogs() })
             }
         }
@@ -293,7 +286,7 @@ fun StreamControlTab(
                             onClick = { viewModel.setRtspUrl(preset) },
                             label = {
                                 Text(
-                                    text = preset.substringAfter("://").substringBefore("/").take(18),
+                                    text = preset.substringAfter("://").substringBefore("/").take(22),
                                     fontSize = 11.sp
                                 )
                             },
@@ -370,7 +363,6 @@ fun StreamControlTab(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                // Live Decoded Frame Canvas
                 LiveFrameView(
                     viewModel = viewModel,
                     modifier = Modifier.fillMaxSize()
@@ -574,7 +566,6 @@ fun LiveFrameView(
             modifier = Modifier.fillMaxSize()
         )
 
-        // If bitmap is available from FrameManager, render it
         currentBitmap?.let { bmp ->
             Image(
                 bitmap = bmp.asImageBitmap(),
@@ -696,12 +687,15 @@ fun CameraTestTab(
 }
 
 @Composable
-fun ModuleStatusTab(
+fun TargetArchitectureTab(
     uiState: KmjsUiState,
+    viewModel: MainViewModel,
     modifier: Modifier = Modifier
 ) {
     val scrollState = rememberScrollState()
     val clipboardManager = LocalClipboardManager.current
+    var newPkgInput by remember { mutableStateOf("") }
+    var newNameInput by remember { mutableStateOf("") }
 
     Column(
         modifier = modifier
@@ -710,6 +704,7 @@ fun ModuleStatusTab(
             .padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
     ) {
+        // Module Hook Status Card
         Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
@@ -731,7 +726,7 @@ fun ModuleStatusTab(
                     Spacer(modifier = Modifier.width(10.dp))
                     Column {
                         Text(
-                            text = "NPatch / LSPatch Module Status",
+                            text = "NPatch / LSPatch Injection Architecture",
                             fontWeight = FontWeight.Bold,
                             fontSize = 15.sp
                         )
@@ -749,7 +744,140 @@ fun ModuleStatusTab(
             }
         }
 
-        // Setup & Testing Guide
+        // Generic Target Matching Card
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Wildcard Camera Interception",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 14.sp
+                        )
+                        Text(
+                            text = "Automatically inject into any patched app requesting Camera2, CameraX, or Legacy Camera APIs.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = uiState.isWildcardMode,
+                        onCheckedChange = { viewModel.toggleWildcardMode() }
+                    )
+                }
+            }
+        }
+
+        // Supported Target Applications List
+        Card(
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "CONFIGURED TARGET APPLICATIONS (${uiState.supportedTargets.size})",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary,
+                    letterSpacing = 1.sp
+                )
+
+                uiState.supportedTargets.forEach { target ->
+                    Surface(
+                        shape = RoundedCornerShape(10.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        text = target.displayName,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 13.sp
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Surface(
+                                        shape = RoundedCornerShape(4.dp),
+                                        color = MaterialTheme.colorScheme.primaryContainer
+                                    ) {
+                                        Text(
+                                            text = target.preferredApi.name,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = target.packageName,
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Add custom target input
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = newPkgInput,
+                        onValueChange = { newPkgInput = it },
+                        placeholder = { Text("package.name", fontSize = 12.sp) },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                    IconButton(
+                        onClick = {
+                            if (newPkgInput.isNotBlank()) {
+                                viewModel.addTarget(
+                                    TargetAppConfig(
+                                        packageName = newPkgInput.trim(),
+                                        displayName = newPkgInput.trim().substringAfterLast("."),
+                                        description = "Custom user target"
+                                    )
+                                )
+                                newPkgInput = ""
+                            }
+                        }
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Add Target")
+                    }
+                }
+            }
+        }
+
+        // NPatch Setup Guide
         Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
@@ -762,7 +890,7 @@ fun ModuleStatusTab(
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 Text(
-                    text = "NPATCH / LSPATCH INJECTION SETUP",
+                    text = "NPATCH / LSPATCH INJECTION STEPS",
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
@@ -770,13 +898,13 @@ fun ModuleStatusTab(
                 )
 
                 val instructions = listOf(
-                    "1. Install KMJS APK onto the device.",
-                    "2. Open LSPatch or NPatch app.",
-                    "3. Select target application to patch (e.g. WhatsApp, Camera test app, Chrome).",
-                    "4. Add KMJS as an embedded or local Xposed module.",
-                    "5. Build and install the patched APK.",
-                    "6. Open KMJS, enter RTSP URL, and press CONNECT.",
-                    "7. Launch the target app: its camera feed will automatically be replaced with KMJS RTSP stream!"
+                    "1. Install KMJS APK on device.",
+                    "2. Open NPatch or LSPatch.",
+                    "3. Select target application to patch (or any camera app).",
+                    "4. Embed module com.kmjs.virtualcamera.",
+                    "5. Install the generated patched APK.",
+                    "6. In KMJS, press CONNECT to start RTSP streaming.",
+                    "7. Open the target app: physical camera frames are replaced with RTSP video!"
                 )
 
                 instructions.forEach { step ->
@@ -787,7 +915,7 @@ fun ModuleStatusTab(
                     )
                 }
 
-                Spacer(modifier = Modifier.height(6.dp))
+                Spacer(modifier = Modifier.height(4.dp))
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.End
@@ -816,11 +944,15 @@ fun LogsTab(
 
     val tags = listOf(
         null to "ALL",
-        KmjsLog.TAG_RTSP to "RTSP",
-        KmjsLog.TAG_SERVICE to "SERVICE",
-        KmjsLog.TAG_FRAME to "FRAME",
+        KmjsLog.TAG_MODULE to "MODULE",
+        KmjsLog.TAG_PROCESS to "PROCESS",
+        KmjsLog.TAG_TARGET to "TARGET",
         KmjsLog.TAG_INJECT to "INJECT",
-        KmjsLog.TAG_CAMERA to "CAMERA"
+        KmjsLog.TAG_CAMERA to "CAMERA",
+        KmjsLog.TAG_RTSP to "RTSP",
+        KmjsLog.TAG_FRAME to "FRAME",
+        KmjsLog.TAG_SERVICE to "SERVICE",
+        KmjsLog.TAG_ERROR to "ERROR"
     )
 
     val filteredLogs = if (filterTag == null) logs else logs.filter { it.tag == filterTag }

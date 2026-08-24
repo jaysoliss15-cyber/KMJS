@@ -58,6 +58,7 @@ class KmjsRtspPipeline(
     private var reconnectAttempt = 0
     private var reconnectJob: Job? = null
     private val isManuallyStopped = AtomicBoolean(false)
+    private var hasLoggedFirstFrame = false
 
     // Current stream attributes
     var videoWidth: Int = 1920
@@ -81,10 +82,15 @@ class KmjsRtspPipeline(
     fun connect(config: RtspConfig) {
         currentConfig = config
         isManuallyStopped.set(false)
+        hasLoggedFirstFrame = false
         reconnectAttempt = 0
         reconnectJob?.cancel()
 
-        KmjsLog.i(KmjsLog.TAG_RTSP, "RTSP connection attempt to: ${config.sanitizedUrl}")
+        KmjsLog.event(
+            KmjsLog.TAG_RTSP,
+            "RTSP_CONNECT_START",
+            "Target URL: ${config.sanitizedUrl}"
+        )
         _stateFlow.value = RtspConnectionState.CONNECTING
         _statusMessage.value = "Connecting to ${config.sanitizedUrl}..."
 
@@ -133,7 +139,16 @@ class KmjsRtspPipeline(
                             reconnectAttempt = 0
                             _stateFlow.value = RtspConnectionState.CONNECTED
                             _statusMessage.value = "Connected (${videoWidth}x${videoHeight})"
-                            KmjsLog.i(KmjsLog.TAG_RTSP, "RTSP connected and stream is READY: ${videoWidth}x${videoHeight}")
+                            KmjsLog.event(
+                                KmjsLog.TAG_RTSP,
+                                "RTSP_CONNECTED",
+                                "Stream is READY: ${videoWidth}x${videoHeight}"
+                            )
+                            KmjsLog.event(
+                                KmjsLog.TAG_RTSP,
+                                "DECODER_STARTED",
+                                "ExoPlayer Media3 H.264/AVC Decoder active"
+                            )
                             startFrameExtraction()
                         }
                         Player.STATE_ENDED -> {
@@ -156,7 +171,11 @@ class KmjsRtspPipeline(
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
-                    KmjsLog.e(KmjsLog.TAG_RTSP, "Decoder error: ${error.message}", error)
+                    KmjsLog.event(
+                        KmjsLog.TAG_ERROR,
+                        "DECODER_FAILED",
+                        "PlaybackException: ${error.message}"
+                    )
                     handleStreamInterrupted(error.localizedMessage ?: "Playback error")
                 }
             })
@@ -165,9 +184,13 @@ class KmjsRtspPipeline(
             player.prepare()
             player.playWhenReady = true
 
-            KmjsLog.i(KmjsLog.TAG_RTSP, "Decoder started for: ${config.sanitizedUrl}")
+            KmjsLog.i(KmjsLog.TAG_RTSP, "Player prepared for: ${config.sanitizedUrl}")
         } catch (t: Throwable) {
-            KmjsLog.e(KmjsLog.TAG_RTSP, "Failed to initialize RTSP player: ${t.message}", t)
+            KmjsLog.event(
+                KmjsLog.TAG_ERROR,
+                "RTSP_CONNECTION_FAILED",
+                "Failed to initialize RTSP player: ${t.message}"
+            )
             handleStreamInterrupted(t.message ?: "Initialization error")
         }
     }
@@ -177,7 +200,6 @@ class KmjsRtspPipeline(
             offscreenSurfaceTexture = SurfaceTexture(offscreenTexId).apply {
                 setDefaultBufferSize(videoWidth, videoHeight)
                 setOnFrameAvailableListener({
-                    // New decoded frame ready in GL texture
                     onGlFrameAvailable()
                 }, mainHandler)
             }
@@ -221,6 +243,16 @@ class KmjsRtspPipeline(
                         timestampNs = System.nanoTime(),
                         rotationDegrees = 0
                     )
+
+                    if (!hasLoggedFirstFrame) {
+                        hasLoggedFirstFrame = true
+                        KmjsLog.event(
+                            KmjsLog.TAG_FRAME,
+                            "FIRST_FRAME_RECEIVED",
+                            "Resolution=${videoWidth}x${videoHeight}"
+                        )
+                    }
+
                     frameManager.publishFrame(frame)
                 } catch (e: Exception) {
                     KmjsLog.w(KmjsLog.TAG_FRAME, "Error publishing RTSP frame", e)
@@ -270,7 +302,11 @@ class KmjsRtspPipeline(
         } else {
             _stateFlow.value = RtspConnectionState.ERROR
             _statusMessage.value = "Connection failed: $reason"
-            KmjsLog.e(KmjsLog.TAG_RTSP, "RTSP connection failed permanently or exceeded retry limit: $reason")
+            KmjsLog.event(
+                KmjsLog.TAG_RTSP,
+                "RTSP_CONNECTION_FAILED",
+                "Exceeded retry limit or fatal error: $reason"
+            )
         }
     }
 

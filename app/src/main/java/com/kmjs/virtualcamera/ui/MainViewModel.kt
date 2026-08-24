@@ -12,20 +12,19 @@ import androidx.lifecycle.viewModelScope
 import com.kmjs.virtualcamera.frame.FrameStats
 import com.kmjs.virtualcamera.frame.KmjsFrameManager
 import com.kmjs.virtualcamera.inject.KmjsXposedHook
+import com.kmjs.virtualcamera.inject.SupportedTargetRegistry
+import com.kmjs.virtualcamera.inject.TargetAppConfig
 import com.kmjs.virtualcamera.rtsp.KmjsRtspPipeline
 import com.kmjs.virtualcamera.rtsp.RtspConnectionState
 import com.kmjs.virtualcamera.service.KmjsRtspService
 import com.kmjs.virtualcamera.util.KmjsLog
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 data class KmjsUiState(
-    val rtspUrl: String = "rtsp://192.168.1.38:8554/live/obs",
+    val rtspUrl: String = "rtsp://9627b0bf2a7b.entrypoint.cloud.wowza.com:1935/app-p5260J38/66abe4b9_stream1",
     val connectionState: RtspConnectionState = RtspConnectionState.DISCONNECTED,
     val statusMessage: String = "Disconnected",
     val frameStats: FrameStats = FrameStats(),
@@ -33,7 +32,10 @@ data class KmjsUiState(
     val isTestPatternActive: Boolean = false,
     val isModuleHooked: Boolean = false,
     val hookedPackage: String? = null,
-    val selectedTab: Int = 0 // 0: Stream & Preview, 1: Camera Test, 2: Module & IPC, 3: Logs
+    val hookedProcess: String? = null,
+    val isWildcardMode: Boolean = true,
+    val supportedTargets: List<TargetAppConfig> = emptyList(),
+    val selectedTab: Int = 0 // 0: Stream & Preview, 1: Camera Test, 2: NPatch / LSPatch & Targets, 3: Logs
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -49,9 +51,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private var boundPipeline: KmjsRtspPipeline? = null
 
     val presetUrls = listOf(
+        "rtsp://9627b0bf2a7b.entrypoint.cloud.wowza.com:1935/app-p5260J38/66abe4b9_stream1",
         "rtsp://192.168.1.38:8554/live/obs",
         "rtsp://192.168.1.100:8554/live",
-        "rtsp://localhost:8554/live/stream",
         "rtsp://10.0.2.2:8554/live"
     )
 
@@ -73,7 +75,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     init {
-        KmjsLog.i(KmjsLog.TAG_GENERAL, "KMJS MainViewModel initialized")
+        KmjsLog.event(KmjsLog.TAG_GENERAL, "KMJS_APP_START", "MainViewModel initialized")
 
         // Observe FrameManager statistics
         viewModelScope.launch {
@@ -89,13 +91,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        // Check module hook state
+        refreshTargetsList()
+        bindToRtspService()
+    }
+
+    fun refreshTargetsList() {
         _uiState.value = _uiState.value.copy(
             isModuleHooked = KmjsXposedHook.isModuleLoaded,
-            hookedPackage = KmjsXposedHook.currentHookedPackage
+            hookedPackage = KmjsXposedHook.currentHookedPackage,
+            hookedProcess = KmjsXposedHook.currentHookedProcess,
+            isWildcardMode = SupportedTargetRegistry.isWildcardModeEnabled,
+            supportedTargets = SupportedTargetRegistry.getAllTargets()
         )
-
-        bindToRtspService()
     }
 
     fun setRtspUrl(url: String) {
@@ -106,17 +113,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         _uiState.value = _uiState.value.copy(selectedTab = index)
     }
 
+    fun toggleWildcardMode() {
+        val next = !_uiState.value.isWildcardMode
+        SupportedTargetRegistry.isWildcardModeEnabled = next
+        _uiState.value = _uiState.value.copy(isWildcardMode = next)
+        KmjsLog.i(KmjsLog.TAG_TARGET, "Wildcard target matching mode: $next")
+    }
+
+    fun addTarget(config: TargetAppConfig) {
+        SupportedTargetRegistry.register(config)
+        refreshTargetsList()
+    }
+
     fun connect() {
         val url = _uiState.value.rtspUrl.trim()
         if (url.isEmpty()) return
 
-        KmjsLog.i(KmjsLog.TAG_GENERAL, "CONNECT requested for: $url")
+        KmjsLog.event(KmjsLog.TAG_GENERAL, "CONNECT_CLICKED", "URL: $url")
         KmjsRtspService.start(context, url)
         bindToRtspService()
     }
 
     fun disconnect() {
-        KmjsLog.i(KmjsLog.TAG_GENERAL, "DISCONNECT requested")
+        KmjsLog.event(KmjsLog.TAG_GENERAL, "DISCONNECT_CLICKED")
         KmjsRtspService.stop(context)
         KmjsFrameManager.stopTestPatternGenerator()
         _uiState.value = _uiState.value.copy(

@@ -1,6 +1,5 @@
 package com.kmjs.virtualcamera.inject
 
-import android.app.Application
 import android.content.Context
 import com.kmjs.virtualcamera.ipc.KmjsIpcClient
 import com.kmjs.virtualcamera.util.KmjsLog
@@ -14,27 +13,55 @@ import de.robv.android.xposed.callbacks.XC_LoadPackage
 /**
  * Main NPatch / LSPatch / Xposed module entry point for KMJS Virtual Camera.
  * Referenced by /assets/xposed_init.
+ *
+ * Implements generic target detection, API discovery, and multi-camera hook dispatching.
  */
 class KmjsXposedHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
 
     companion object {
         var isModuleLoaded = false
         var currentHookedPackage: String? = null
+        var currentHookedProcess: String? = null
+        var activeHooks: List<CameraHook> = emptyList()
     }
 
     override fun initZygote(startupParam: IXposedHookZygoteInit.StartupParam) {
         isModuleLoaded = true
-        KmjsLog.i(KmjsLog.TAG_INJECT, "KMJS Zygote initialized for NPatch/LSPatch")
+        KmjsLog.event(
+            KmjsLog.TAG_MODULE,
+            "MODULE_START",
+            "KMJS Zygote initialized for NPatch/LSPatch/Xposed"
+        )
     }
 
     override fun handleLoadPackage(lpparam: XC_LoadPackage.LoadPackageParam) {
         val packageName = lpparam.packageName
-        currentHookedPackage = packageName
+        val processName = lpparam.processName
+
+        // 1. Process and Target Inspection
+        val inspection = TargetProcessDetector.inspect(packageName, processName)
+        if (!inspection.shouldInject) {
+            KmjsLog.d(
+                KmjsLog.TAG_PROCESS,
+                "Skipping injection for $processName (${inspection.skipReason ?: "Not eligible"})"
+            )
+            return
+        }
+
         isModuleLoaded = true
+        currentHookedPackage = packageName
+        currentHookedProcess = processName
 
-        KmjsLog.i(KmjsLog.TAG_INJECT, "KMJS injection module loaded in target process: $packageName (Process: ${lpparam.processName})")
+        KmjsLog.event(
+            KmjsLog.TAG_INJECT,
+            "INJECT_TARGET_MATCHED",
+            "Target: ${inspection.targetConfig?.displayName ?: packageName} in process $processName"
+        )
 
-        // Hook Application.attachBaseContext to obtain target App Context
+        // 2. Camera API detection
+        val apiDetection = CameraApiDetector.detect(lpparam.classLoader)
+
+        // 3. Hook Application.attachBaseContext to obtain target Context
         try {
             XposedHelpers.findAndHookMethod(
                 "android.app.Application",
@@ -45,45 +72,91 @@ class KmjsXposedHook : IXposedHookLoadPackage, IXposedHookZygoteInit {
                     override fun afterHookedMethod(param: MethodHookParam) {
                         val appContext = param.args.getOrNull(0) as? Context
                         if (appContext != null) {
-                            onTargetApplicationAttached(appContext, lpparam)
+                            onTargetApplicationAttached(appContext, lpparam, apiDetection)
                         }
                     }
                 }
             )
         } catch (t: Throwable) {
-            KmjsLog.w(KmjsLog.TAG_INJECT, "Could not hook attachBaseContext: ${t.message}")
+            KmjsLog.w(KmjsLog.TAG_INJECT, "Could not hook Application.attachBaseContext: ${t.message}")
         }
 
-        // Install camera hooks
-        installHooks(lpparam.classLoader, null)
+        // 4. Install initial hooks without context (for early camera opens)
+        installCameraHooks(lpparam.classLoader, null, apiDetection)
     }
 
-    private fun onTargetApplicationAttached(context: Context, lpparam: XC_LoadPackage.LoadPackageParam) {
-        KmjsLog.i(KmjsLog.TAG_INJECT, "Target context attached for package: ${lpparam.packageName}")
+    private fun onTargetApplicationAttached(
+        context: Context,
+        lpparam: XC_LoadPackage.LoadPackageParam,
+        apiDetection: CameraApiDetectionResult
+    ) {
+        KmjsLog.event(
+            KmjsLog.TAG_INJECT,
+            "TARGET_CONTEXT_ATTACHED",
+            "Package: ${lpparam.packageName}, Process: ${lpparam.processName}"
+        )
 
-        // Send heartbeat to KMJS Foreground Service
-        val ipcClient = KmjsIpcClient(context)
-        ipcClient.sendHeartbeat(lpparam.packageName)
-
-        // Install / refresh hooks with context
-        installHooks(lpparam.classLoader, context)
-    }
-
-    private fun installHooks(classLoader: ClassLoader?, context: Context?) {
+        // Send heartbeat to KMJS Foreground Service via IPC
         try {
-            val camera2Hook = Camera2Hook(classLoader, context)
-            val c2Success = camera2Hook.install()
+            val ipcClient = KmjsIpcClient(context)
+            val ack = ipcClient.sendHeartbeat(lpparam.packageName)
+            KmjsLog.i(KmjsLog.TAG_INJECT, "IPC Heartbeat to KMJS Service acknowledged: $ack")
+        } catch (e: Exception) {
+            KmjsLog.d(KmjsLog.TAG_INJECT, "Heartbeat attempt note: ${e.message}")
+        }
 
-            val legacyHook = LegacyCameraHook(classLoader)
-            val legacySuccess = legacyHook.install()
+        // Re-install/refresh camera hooks with valid application context
+        installCameraHooks(lpparam.classLoader, context, apiDetection)
+    }
 
-            if (c2Success || legacySuccess) {
-                KmjsLog.i(KmjsLog.TAG_INJECT, "Hook installation SUCCESS for target package: $currentHookedPackage")
-            } else {
-                KmjsLog.w(KmjsLog.TAG_INJECT, "Hook installation completed with no active targets matched")
+    private fun installCameraHooks(
+        classLoader: ClassLoader?,
+        context: Context?,
+        apiDetection: CameraApiDetectionResult
+    ) {
+        KmjsLog.event(KmjsLog.TAG_INJECT, "HOOK_INSTALL_START", "Target=$currentHookedPackage")
+
+        val hooksToInstall = mutableListOf<CameraHook>()
+
+        // Install hooks based on detected APIs or all applicable adapters
+        val camera2Hook = Camera2Hook()
+        hooksToInstall.add(camera2Hook)
+
+        if (apiDetection.hasCameraX) {
+            hooksToInstall.add(CameraXHook())
+        }
+
+        if (apiDetection.hasLegacyCamera) {
+            hooksToInstall.add(LegacyCameraHook())
+        }
+
+        var anySuccess = false
+        for (hook in hooksToInstall) {
+            try {
+                val success = hook.install(classLoader, context)
+                if (success) {
+                    anySuccess = true
+                    KmjsLog.i(KmjsLog.TAG_INJECT, "Adapter installed: ${hook.name} (${hook.apiType})")
+                }
+            } catch (t: Throwable) {
+                KmjsLog.w(KmjsLog.TAG_INJECT, "Error installing ${hook.name}: ${t.message}")
             }
-        } catch (t: Throwable) {
-            KmjsLog.e(KmjsLog.TAG_INJECT, "Hook installation FAILED: ${t.message}", t)
+        }
+
+        activeHooks = hooksToInstall
+
+        if (anySuccess) {
+            KmjsLog.event(
+                KmjsLog.TAG_INJECT,
+                "HOOK_INSTALL_SUCCESS",
+                "Installed ${hooksToInstall.size} camera adapters for $currentHookedPackage"
+            )
+        } else {
+            KmjsLog.event(
+                KmjsLog.TAG_INJECT,
+                "HOOK_INSTALL_FAILED",
+                "No camera hooks could be registered for $currentHookedPackage"
+            )
         }
     }
 }
